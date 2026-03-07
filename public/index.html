@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>OJ Integration Test</title>
+
+<link rel="stylesheet" href="style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>OJ Integration Test</h1>
+
+<div class="problem-bar">
+
+<input
+id="problemInput"
+placeholder="Enter problem (e.g. 1213D2)"
+>
+
+<button onclick="loadProblem()">
+Load Problem
+</button>
+
+</div>
+
+<div id="problemContainer"></div>
+
+<div id="submitSection">
+
+<h2>Submit Solution</h2>
+
+<select id="language">
+
+<option value="54">GNU C++17</option>
+<option value="71">Python 3</option>
+
+</select>
+
+<textarea
+id="code"
+placeholder="Paste your solution here..."
+></textarea>
+
+<button onclick="submitSolution()">
+Submit
+</button>
+
+</div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+
+</html>

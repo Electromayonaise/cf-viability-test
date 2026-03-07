@@ -1,0 +1,203 @@
+body {
+
+background: #0e0e0e;
+color: #e6e6e6;
+
+font-family: Arial;
+
+margin: 0;
+
+}
+
+.container {
+
+width: 900px;
+
+margin: auto;
+
+padding: 40px;
+
+}
+
+.problem-bar {
+
+display: flex;
+
+gap: 10px;
+
+margin-bottom: 25px;
+
+}
+
+.problem-bar input {
+
+flex: 1;
+
+padding: 10px;
+
+font-size: 16px;
+
+border-radius: 6px;
+
+border: none;
+
+}
+
+button {
+
+background: #3a7afe;
+
+color: white;
+
+border: none;
+
+padding: 10px 18px;
+
+border-radius: 6px;
+
+cursor: pointer;
+
+font-weight: bold;
+
+}
+
+button:hover {
+
+background: #295fd4;
+
+}
+
+#problemContainer {
+
+background: #1b1b1b;
+
+padding: 25px;
+
+border-radius: 8px;
+
+margin-bottom: 40px;
+
+}
+
+.problem-title {
+
+font-size: 22px;
+
+font-weight: bold;
+
+margin-bottom: 10px;
+
+}
+
+.problem-meta {
+
+display: flex;
+
+flex-wrap: wrap;
+
+gap: 25px;
+
+margin-bottom: 20px;
+
+font-size: 14px;
+
+color: #ccc;
+
+}
+
+.problem-meta b {
+
+color: white;
+
+}
+
+.tag {
+
+background: #333;
+
+padding: 3px 8px;
+
+border-radius: 4px;
+
+margin-right: 5px;
+
+font-size: 12px;
+
+}
+
+.cf-statement {
+
+line-height: 1.6;
+
+}
+
+.cf-statement .title {
+display:none;
+}
+
+.cf-statement .input-specification,
+.cf-statement .output-specification {
+
+margin-top: 20px;
+
+}
+
+.cf-statement .example {
+
+margin-top: 25px;
+
+}
+
+.example-title {
+
+font-weight: bold;
+
+margin-bottom: 5px;
+
+color: #aaa;
+
+}
+
+.cf-statement pre {
+
+background: #121212;
+
+padding: 12px;
+
+border-radius: 6px;
+
+overflow-x: auto;
+
+}
+
+textarea {
+
+width: 100%;
+
+height: 260px;
+
+margin-top: 15px;
+
+background: #121212;
+
+color: white;
+
+border: none;
+
+padding: 12px;
+
+border-radius: 6px;
+
+font-family: monospace;
+
+}
+
+select {
+
+padding: 8px;
+
+border-radius: 6px;
+
+border: none;
+
+}
