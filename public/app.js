@@ -186,7 +186,10 @@ async function submitSolution() {
     const data = await res.json()
 
     if (res.ok) {
-      setStatus(`Submitted! ID: ${data.submissionId}`, "ok")
+      const msg = data.submissionId
+        ? `Submitted! ID: ${data.submissionId}`
+        : `Submitted! ${data.warning || "Check your Codeforces profile for the result."}`
+      setStatus(msg, "ok")
     } else if (res.status === 401) {
       setLoggedOut()
       setStatus("Session expired. Please log in again.", "error")

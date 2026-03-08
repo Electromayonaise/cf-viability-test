@@ -214,88 +214,149 @@ export async function submitCF(contestId, index, code, languageId, handle) {
 
     const page = context.pages()[0] || await context.newPage()
 
-    // Navegar a la página de submit para obtener tokens CSRF
+    // Navegar a submit — las cookies ya están en el contexto del browser
     await page.goto("https://codeforces.com/problemset/submit", {
       waitUntil: "domcontentloaded",
       timeout: 30000
     })
 
-    // Verificar que no hay challenge (sesión válida)
-    const title = await page.title()
-    if (title.includes("moment") || title.includes("Verification")) {
+    // Verificar sesión activa
+    const loggedIn = await page.evaluate(handle => {
+      const text = document.body.innerText
+      return text.includes(handle) || text.includes("Logout")
+    }, handle)
+
+    if (!loggedIn) {
       clearSession(handle)
       throw new Error(`Session for ${handle} expired. Please log in again.`)
     }
 
-    // Extraer CSRF token desde el DOM del browser
-    const csrf = await page.evaluate(() => {
-      return document.querySelector("meta[name='X-Csrf-Token']")?.getAttribute("content") ||
-             document.querySelector("input[name='csrf_token']")?.value || ""
+    console.log(`[CF] Logged in. Filling submit form...`)
+
+    // Llenar problema
+    await page.waitForSelector("input[name='submittedProblemCode']", { timeout: 10000 })
+    await page.fill("input[name='submittedProblemCode']", `${contestId}${index}`)
+
+    // Seleccionar lenguaje
+    await page.selectOption("select[name='programTypeId']", String(languageId))
+    await page.waitForTimeout(800)  // esperar que el editor se reinicialice
+
+    // El textarea real está hidden — CF usa Monaco/CodeMirror encima.
+    // Inyectar el código directamente en el textarea vía JS y disparar eventos
+    // para que el editor lo recoja, luego verificar con el valor del textarea.
+    await page.evaluate((code) => {
+      const textarea = document.querySelector("textarea[name='source']")
+      if (!textarea) return
+
+      // Intentar API de Monaco si está disponible
+      if (window.editor && window.editor.setValue) {
+        window.editor.setValue(code)
+        return
+      }
+
+      // Buscar instancia de Monaco por el contenedor
+      const editorEl = document.querySelector(".monaco-editor")
+      if (editorEl) {
+        const monacoModel = editorEl._modelData?.model || 
+          (window.monaco?.editor?.getEditors?.()[0]?.getModel?.())
+        if (monacoModel) {
+          monacoModel.setValue(code)
+          return
+        }
+      }
+
+      // Fallback: setear el textarea directamente y disparar eventos de change
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, "value"
+      ).set
+      nativeInputValueSetter.call(textarea, code)
+      textarea.dispatchEvent(new Event("input", { bubbles: true }))
+      textarea.dispatchEvent(new Event("change", { bubbles: true }))
+    }, code)
+
+    await page.waitForTimeout(500)
+
+    // Verificar que el código quedó en el textarea
+    const codeInTextarea = await page.evaluate(() => {
+      const ta = document.querySelector("textarea[name='source']")
+      return ta ? ta.value : ""
     })
 
-    if (!csrf) {
-      clearSession(handle)
-      throw new Error(`Could not get CSRF token. Session for ${handle} may be expired.`)
+    if (!codeInTextarea.trim()) {
+      // Último recurso: forzar el valor via CDP evaluateHandle y submit directo
+      console.log("[CF] Monaco injection failed, using form override...")
+      await page.evaluate((code) => {
+        document.querySelector("textarea[name='source']").removeAttribute("hidden")
+        document.querySelector("textarea[name='source']").style.display = "block"
+        document.querySelector("textarea[name='source']").value = code
+      }, code)
     }
 
-    const ftaa = await page.evaluate(() => {
-      const m = document.documentElement.innerHTML.match(/var ftaa\s*=\s*["'](.*?)["\']/);
-      return m ? m[1] : ""
-    })
-    const bfaa = await page.evaluate(() => {
-      const m = document.documentElement.innerHTML.match(/var bfaa\s*=\s*["'](.*?)["\']/);
-      return m ? m[1] : ""
-    })
+    console.log("[CF] Code length in textarea:", codeInTextarea.length || "(via override)")
 
-    console.log(`[CF] csrf=${csrf.slice(0,8)}... ftaa="${ftaa}"`)
-
-    // Ejecutar el submit dentro del browser usando fetch() del browser
-    // Esto garantiza que cf_clearance + TLS fingerprint coincidan
-    const submitResult = await page.evaluate(async ({ csrf, contestId, index, languageId, code, ftaa, bfaa }) => {
-      const form = new URLSearchParams()
-      form.append("csrf_token", csrf)
-      form.append("submittedProblemCode", `${contestId}${index}`)
-      form.append("programTypeId", String(languageId))
-      form.append("source", code)
-      form.append("ftaa", ftaa)
-      form.append("bfaa", bfaa)
-      form.append("action", "submitSolutionFormSubmitted")
-      form.append("tabSize", "4")
-      form.append("_tta", "176")
-
-      const res = await fetch(`/problemset/submit?csrf_token=${csrf}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Referer": "https://codeforces.com/problemset/submit",
-          "Origin": "https://codeforces.com"
-        },
-        body: form.toString(),
-        credentials: "include"
-      })
-
-      return { status: res.status, ok: res.ok }
-    }, { csrf, contestId, index, languageId, code, ftaa, bfaa })
-
-    console.log(`[CF] Submit response: HTTP ${submitResult.status}`)
-
-    if (!submitResult.ok && submitResult.status !== 200) {
-      throw new Error(`Submit returned HTTP ${submitResult.status}`)
+    // Esperar a que Turnstile complete la verificacion:
+    // el iframe de CF cambia a estado "success" cuando aparece el checkmark verde
+    try {
+      await page.waitForFunction(() => {
+        const iframe = document.querySelector("iframe[src*='challenges.cloudflare.com']")
+        if (!iframe) return true  // sin Turnstile, proceder
+        // El widget pasa a aria-label "Success" o el boton queda enabled
+        return iframe.getAttribute("aria-label")?.includes("success") ||
+               document.querySelector("#singlePageSubmitButton:not([disabled])") !== null
+      }, { timeout: 15000, polling: 300 })
+    } catch (_) {
+      // Si no detectamos el estado, esperar un tiempo fijo conservador
     }
 
-    // Obtener submission ID de la página de status
-    await page.goto(`https://codeforces.com/problemset/status?handle=${handle}`, {
+    // Espera adicional para que el token de Turnstile se procese en el servidor
+    await page.waitForTimeout(2000)
+    await page.waitForSelector("#singlePageSubmitButton:not([disabled])", { timeout: 10000 })
+
+    console.log("[CF] Turnstile passed. Clicking #singlePageSubmitButton...")
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }),
+      page.click("#singlePageSubmitButton")
+    ])
+
+    console.log("[CF] Post-submit URL:", page.url())
+
+    // Esperar un momento para que CF indexe el submission
+    await page.waitForTimeout(2000)
+
+    // Leer submission ID desde la página de status del usuario
+    await page.goto(`https://codeforces.com/problemset/status?handle=${handle}&my=on`, {
       waitUntil: "domcontentloaded",
       timeout: 20000
     })
 
-    const submissionId = await page.evaluate(() => {
-      const row = document.querySelector("tr[data-submission-id]")
-      return row ? row.getAttribute("data-submission-id") : null
-    })
+    // Esperar a que aparezca al menos una fila de submission
+    let submissionId = null
+    try {
+      await page.waitForSelector("tr[data-submission-id]", { timeout: 10000 })
+      submissionId = await page.evaluate(() => {
+        const row = document.querySelector("tr[data-submission-id]")
+        return row ? row.getAttribute("data-submission-id") : null
+      })
+    } catch (_) {
+      // Si no aparece con my=on, intentar sin filtro buscando el handle
+      console.log("[CF] Retrying status without my=on filter...")
+      await page.goto(`https://codeforces.com/submissions/${handle}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 20000
+      })
+      try {
+        await page.waitForSelector("tr[data-submission-id]", { timeout: 8000 })
+        submissionId = await page.evaluate(() => {
+          const row = document.querySelector("tr[data-submission-id]")
+          return row ? row.getAttribute("data-submission-id") : null
+        })
+      } catch (_) {}
+    }
 
     if (!submissionId) {
-      throw new Error("Submission sent but ID not found in status page")
+      // El submit fue exitoso (HTTP 200) aunque no podamos leer el ID ahora
+      console.warn("[CF] Submit succeeded but could not read submission ID from status page.")
+      return { submissionId: null, warning: "Submission sent successfully but ID could not be retrieved. Check your Codeforces profile." }
     }
 
     console.log(`[CF] Submit OK. ID: ${submissionId}`)

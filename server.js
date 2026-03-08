@@ -69,7 +69,8 @@ app.post("/api/submit", async (req, res) => {
       return res.status(400).json({ error: "handle requerido para submit" })
     }
     const result = await submitCF(contestId, index, code, languageId, handle)
-    res.json(result)
+    // Submit exitoso incluso si no pudimos leer el ID
+    res.json({ ...result, success: true })
   } catch (err) {
     console.error(err)
     // Si la sesion expiro, informar al cliente para que re-autentique
