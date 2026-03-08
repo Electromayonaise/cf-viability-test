@@ -7,6 +7,7 @@
  * Solución: ejecutar fetch() dentro del Chrome via page.evaluate().
  */
 
+import axios from "axios"
 import { chromium } from "playwright"
 import { spawn } from "child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs"
@@ -367,5 +368,53 @@ export async function submitCF(contestId, index, code, languageId, handle) {
   } finally {
     if (proc) { proc.kill(); console.log("[CF] Chrome (submit) closed.") }
     rm(profileDir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getSubmissionStatus — usa la API pública de CF (no requiere sesión)
+// ---------------------------------------------------------------------------
+
+export async function getSubmissionStatus(submissionId) {
+  // La API de CF permite consultar submissions recientes del problemset
+  // Buscamos por submission ID en las últimas submissions
+  const res = await axios.get(
+    `https://codeforces.com/api/problemset.recentStatus?count=50`,
+    { timeout: 10000 }
+  )
+
+  if (res.data.status !== "OK") throw new Error("CF API error")
+
+  const submission = res.data.result.find(s => String(s.id) === String(submissionId))
+
+  if (!submission) {
+    return { id: submissionId, verdict: "PENDING", verdictText: "Waiting for judge..." }
+  }
+
+  const verdictMap = {
+    "OK":                    { text: "Accepted",              color: "green" },
+    "WRONG_ANSWER":          { text: "Wrong Answer",          color: "red"   },
+    "TIME_LIMIT_EXCEEDED":   { text: "Time Limit Exceeded",   color: "red"   },
+    "MEMORY_LIMIT_EXCEEDED": { text: "Memory Limit Exceeded", color: "red"   },
+    "RUNTIME_ERROR":         { text: "Runtime Error",         color: "red"   },
+    "COMPILATION_ERROR":     { text: "Compilation Error",     color: "red"   },
+    "CHALLENGED":            { text: "Challenged",            color: "red"   },
+    "TESTING":               { text: "Testing...",            color: "amber" },
+    "PARTIAL":               { text: "Partial",               color: "amber" },
+  }
+
+  const v = submission.verdict || "TESTING"
+  const mapped = verdictMap[v] || { text: v, color: "amber" }
+
+  return {
+    id: submissionId,
+    verdict: v,
+    verdictText: mapped.text,
+    color: mapped.color,
+    passedTests: submission.passedTestCount,
+    timeMs: submission.timeConsumedMillis,
+    memoryKb: submission.memoryConsumedBytes ? Math.round(submission.memoryConsumedBytes / 1024) : null,
+    problem: submission.problem ? `${submission.problem.contestId}${submission.problem.index}` : null,
+    judging: v === "TESTING" || !submission.verdict
   }
 }

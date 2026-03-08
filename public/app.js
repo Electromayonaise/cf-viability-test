@@ -1,6 +1,19 @@
-// ── Session state ────────────────────────────────────────
+// ── State ────────────────────────────────────────────────
 let currentHandle = null
+let pollInterval = null
+let currentSubmissionId = null
 
+// ── Tabs ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById("pane-editor").classList.toggle("active", tab === "editor")
+  document.getElementById("pane-editor").classList.toggle("hidden", tab !== "editor")
+  document.getElementById("pane-result").classList.toggle("active", tab === "result")
+  document.getElementById("pane-result").classList.toggle("hidden", tab !== "result")
+  document.getElementById("tab-editor").classList.toggle("active", tab === "editor")
+  document.getElementById("tab-result").classList.toggle("active", tab === "result")
+}
+
+// ── Status banner ─────────────────────────────────────────
 function setStatus(msg, type = "info") {
   const el = document.getElementById("statusBanner")
   el.textContent = msg
@@ -19,6 +32,7 @@ function setModalStatus(msg, type = "info") {
   el.classList.remove("hidden")
 }
 
+// ── Session UI ────────────────────────────────────────────
 function setLoggedIn(handle) {
   currentHandle = handle
   document.getElementById("userHandle").textContent = handle
@@ -53,11 +67,7 @@ function closeModal() {
 async function doLogin() {
   const handle = document.getElementById("cfHandle").value.trim()
   const password = document.getElementById("cfPassword").value
-
-  if (!handle || !password) {
-    setModalStatus("Handle and password are required.", "error")
-    return
-  }
+  if (!handle || !password) { setModalStatus("Handle and password are required.", "error"); return }
 
   const btn = document.getElementById("modalLoginBtn")
   btn.disabled = true
@@ -71,7 +81,6 @@ async function doLogin() {
       body: JSON.stringify({ handle, password })
     })
     const data = await res.json()
-
     if (res.ok) {
       setModalStatus(`Connected as ${handle}`, "ok")
       setTimeout(() => {
@@ -92,9 +101,7 @@ async function doLogin() {
 }
 
 async function logout() {
-  if (currentHandle) {
-    await fetch(`/api/session/${currentHandle}`, { method: "DELETE" }).catch(() => {})
-  }
+  if (currentHandle) await fetch(`/api/session/${currentHandle}`, { method: "DELETE" }).catch(() => {})
   setLoggedOut()
 }
 
@@ -107,12 +114,11 @@ async function loadProblem() {
   container.innerHTML = `<div class="empty-state"><p style="color:var(--muted)">Loading...</p></div>`
 
   try {
-    const [problemRes, _] = await Promise.all([
+    const [problemRes] = await Promise.all([
       fetch(`/api/problem/${problemId}`),
       loadLanguages()
     ])
     const data = await problemRes.json()
-
     if (!problemRes.ok) throw new Error(data.error || "Failed to load problem")
 
     const tagsHtml = data.tags.map(t => `<span class="tag">${t}</span>`).join("")
@@ -132,7 +138,10 @@ async function loadProblem() {
       </div>
     `
 
-    if (window.MathJax) MathJax.typeset()
+    // MathJax: $$$...$$$  delimiters configured in index.html
+    if (window.MathJax?.typesetPromise) {
+      MathJax.typesetPromise([container]).catch(console.error)
+    }
 
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><p style="color:var(--red)">${err.message}</p></div>`
@@ -152,6 +161,79 @@ async function loadLanguages() {
   })
 }
 
+// ── Verdict polling ───────────────────────────────────────
+function startVerdictPolling(submissionId) {
+  currentSubmissionId = submissionId
+  if (pollInterval) clearInterval(pollInterval)
+
+  const resultTab = document.getElementById("tab-result")
+  resultTab.disabled = false
+  switchTab("result")
+
+  document.getElementById("verdictCard").innerHTML = `
+    <div class="verdict-spinner">
+      <div class="spinner"></div>
+      <span>Judging submission #${submissionId}...</span>
+    </div>
+  `
+  document.getElementById("verdictMeta").classList.add("hidden")
+  document.getElementById("cfLink").classList.add("hidden")
+
+  const poll = async () => {
+    try {
+      const res = await fetch(`/api/verdict/${submissionId}`)
+      const data = await res.json()
+      renderVerdict(data)
+      if (!data.judging) clearInterval(pollInterval)
+    } catch (_) {}
+  }
+
+  poll()
+  pollInterval = setInterval(poll, 2500)
+}
+
+function renderVerdict(data) {
+  const card = document.getElementById("verdictCard")
+  const meta = document.getElementById("verdictMeta")
+  const link = document.getElementById("cfLink")
+
+  if (data.judging) {
+    card.innerHTML = `
+      <div class="verdict-spinner">
+        <div class="spinner"></div>
+        <span>Judging... (test ${data.passedTests ?? 0})</span>
+      </div>
+    `
+    return
+  }
+
+  card.innerHTML = `
+    <div class="verdict-text ${data.color}">${data.verdictText}</div>
+    <div class="verdict-id">Submission #${data.id}</div>
+  `
+
+  if (data.timeMs != null || data.memoryKb != null) {
+    meta.classList.remove("hidden")
+    meta.innerHTML = `
+      ${data.timeMs != null ? `
+        <div class="verdict-stat">
+          <div class="verdict-stat-label">Time</div>
+          <div class="verdict-stat-value">${data.timeMs} ms</div>
+        </div>` : ""}
+      ${data.memoryKb != null ? `
+        <div class="verdict-stat">
+          <div class="verdict-stat-label">Memory</div>
+          <div class="verdict-stat-value">${data.memoryKb} KB</div>
+        </div>` : ""}
+    `
+  }
+
+  if (data.id) {
+    link.href = `https://codeforces.com/problemset/submission/${data.problem?.split(/(\d+)/)[1] || ""}/${data.id}`
+    link.classList.remove("hidden")
+  }
+}
+
 // ── Submit ────────────────────────────────────────────────
 async function submitSolution() {
   if (!currentHandle) { startLogin(); return }
@@ -168,28 +250,21 @@ async function submitSolution() {
   const btn = document.getElementById("submitBtn")
   btn.disabled = true
   btn.textContent = "Submitting..."
-  setStatus("Sending submission...", "info")
+  setStatus("Opening browser to submit...", "info")
 
   try {
     const res = await fetch("/api/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        handle: currentHandle,
-        contestId: match[1],
-        index: match[2],
-        code,
-        languageId
-      })
+      body: JSON.stringify({ handle: currentHandle, contestId: match[1], index: match[2], code, languageId })
     })
-
     const data = await res.json()
 
-    if (res.ok) {
-      const msg = data.submissionId
-        ? `Submitted! ID: ${data.submissionId}`
-        : `Submitted! ${data.warning || "Check your Codeforces profile for the result."}`
-      setStatus(msg, "ok")
+    if (res.ok && data.submissionId) {
+      setStatus(`Submitted! ID: ${data.submissionId}`, "ok")
+      startVerdictPolling(data.submissionId)
+    } else if (res.ok) {
+      setStatus("Submitted! Check your Codeforces profile.", "ok")
     } else if (res.status === 401) {
       setLoggedOut()
       setStatus("Session expired. Please log in again.", "error")
@@ -204,20 +279,15 @@ async function submitSolution() {
   }
 }
 
-// ── Enter key on problem input ────────────────────────────
+// ── Keyboard shortcuts ────────────────────────────────────
 document.getElementById("problemInput").addEventListener("keydown", e => {
   if (e.key === "Enter") loadProblem()
 })
-
-// ── Close modal on overlay click ──────────────────────────
 document.getElementById("loginModal").addEventListener("click", e => {
   if (e.target === e.currentTarget) closeModal()
 })
-
-// ── Enter key in modal ────────────────────────────────────
 document.getElementById("cfPassword").addEventListener("keydown", e => {
   if (e.key === "Enter") doLogin()
 })
 
-// ── On load: check if session exists via known handle ─────
 loadLanguages()

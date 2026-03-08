@@ -3,17 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CF Bridge</title>
+<title>CF Viability Test</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<script>
+// Configure MathJax BEFORE loading it
+window.MathJax = {
+  tex: {
+    inlineMath: [['$$$','$$$']],
+    displayMath: [['$$$$$$','$$$$$$']],
+    processEscapes: true
+  },
+  options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] },
+  startup: { typeset: false }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="topbar">
   <div class="topbar-left">
-    <span class="logo">CF<span class="logo-accent">Bridge</span></span>
+    <span class="logo">CF <span class="logo-accent">Viability Test</span></span>
   </div>
   <div class="topbar-right">
     <div id="userChip" class="user-chip hidden">
@@ -21,17 +33,16 @@
       <span id="userHandle"></span>
       <button class="chip-logout" onclick="logout()" title="Log out">&#x2715;</button>
     </div>
-    <button id="loginBtn" class="btn-login" onclick="startLogin()">
-      Connect Codeforces
-    </button>
+    <button id="loginBtn" class="btn-login" onclick="startLogin()">Connect Codeforces</button>
   </div>
 </header>
 
 <main class="layout">
 
+  <!-- LEFT: problem viewer -->
   <section class="panel panel-problem">
     <div class="search-row">
-      <input id="problemInput" class="input-mono" placeholder="Problem ID — e.g. 1213D2 or 800A">
+      <input id="problemInput" class="input-mono" placeholder="Problem ID — e.g. 1213D2">
       <button class="btn-primary" onclick="loadProblem()">Load</button>
     </div>
     <div id="problemContainer" class="problem-area">
@@ -42,28 +53,46 @@
     </div>
   </section>
 
+  <!-- RIGHT: submit panel with tab switcher -->
   <aside class="panel panel-submit">
 
-    <div class="submit-block">
-      <label class="field-label">Language</label>
-      <select id="language" class="select-field"></select>
+    <div class="tab-bar">
+      <button class="tab active" id="tab-editor" onclick="switchTab('editor')">Editor</button>
+      <button class="tab" id="tab-result" onclick="switchTab('result')" disabled>Result</button>
     </div>
 
-    <div class="submit-block grow">
-      <label class="field-label">Solution</label>
-      <textarea id="code" class="code-editor" placeholder="// paste your solution here"></textarea>
+    <!-- Editor tab -->
+    <div id="pane-editor" class="tab-pane active">
+      <div class="submit-block">
+        <label class="field-label">Language</label>
+        <select id="language" class="select-field"></select>
+      </div>
+      <div class="submit-block grow">
+        <label class="field-label">Solution</label>
+        <textarea id="code" class="code-editor" placeholder="// paste your solution here"></textarea>
+      </div>
+      <div id="submitArea">
+        <button id="connectBtn" class="btn-full btn-connect" onclick="startLogin()">
+          <span class="btn-icon">&#9651;</span> Connect Codeforces to Submit
+        </button>
+        <button id="submitBtn" class="btn-full btn-submit hidden" onclick="submitSolution()">
+          Submit Solution
+        </button>
+      </div>
+      <div id="statusBanner" class="status-banner hidden"></div>
     </div>
 
-    <div id="submitArea">
-      <button id="connectBtn" class="btn-full btn-connect" onclick="startLogin()">
-        <span class="btn-icon">&#9651;</span> Connect Codeforces to Submit
-      </button>
-      <button id="submitBtn" class="btn-full btn-submit hidden" onclick="submitSolution()">
-        Submit Solution
-      </button>
+    <!-- Result tab -->
+    <div id="pane-result" class="tab-pane hidden">
+      <div id="verdictCard" class="verdict-card">
+        <div class="verdict-spinner">
+          <div class="spinner"></div>
+          <span>Judging...</span>
+        </div>
+      </div>
+      <div id="verdictMeta" class="verdict-meta hidden"></div>
+      <a id="cfLink" class="cf-link hidden" target="_blank">View on Codeforces ↗</a>
     </div>
-
-    <div id="statusBanner" class="status-banner hidden"></div>
 
   </aside>
 

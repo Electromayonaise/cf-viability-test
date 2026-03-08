@@ -4,7 +4,7 @@ import bodyParser from "body-parser"
 import config from "./config/config.js"
 
 import { fetchProblem } from "./services/problemService.js"
-import { loginCF, submitCF, hasSession, clearSession } from "./services/cfService.js"
+import { loginCF, submitCF, hasSession, clearSession, getSubmissionStatus } from "./services/cfService.js"
 
 const app = express()
 
@@ -12,73 +12,64 @@ app.use(cors())
 app.use(bodyParser.json())
 app.use(express.static("public"))
 
-// Problema
 app.get("/api/problem/:problemId", async (req, res) => {
   try {
-    const problem = await fetchProblem(req.params.problemId)
-    res.json(problem)
+    res.json(await fetchProblem(req.params.problemId))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: err.message })
   }
 })
 
-// Lenguajes
 app.get("/api/languages", (req, res) => {
   res.json([
-    { id: 54, name: "GNU C++17" },
-    { id: 71, name: "Python 3" },
-    { id: 73, name: "PyPy 3" },
-    { id: 60, name: "Java 11" },
-    { id: 74, name: "GNU C++20" }
+    { id: 54,  name: "GNU C++17" },
+    { id: 74,  name: "GNU C++20" },
+    { id: 71,  name: "Python 3"  },
+    { id: 73,  name: "PyPy 3"    },
+    { id: 60,  name: "Java 11"   }
   ])
 })
 
-// Login — abre browser visible para que el usuario resuelva Turnstile
 app.post("/api/login", async (req, res) => {
   try {
     const { handle, password } = req.body
-    if (!handle || !password) {
-      return res.status(400).json({ error: "handle y password requeridos" })
-    }
-    const result = await loginCF(handle, password)
-    res.json({ success: true, ...result })
+    if (!handle || !password) return res.status(400).json({ error: "handle and password required" })
+    res.json({ success: true, ...(await loginCF(handle, password)) })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: err.message })
   }
 })
 
-// Verificar si un usuario ya tiene sesion activa
 app.get("/api/session/:handle", (req, res) => {
-  const active = hasSession(req.params.handle)
-  res.json({ handle: req.params.handle, active })
+  res.json({ handle: req.params.handle, active: hasSession(req.params.handle) })
 })
 
-// Eliminar sesion de un usuario
 app.delete("/api/session/:handle", (req, res) => {
-  const deleted = clearSession(req.params.handle)
-  res.json({ handle: req.params.handle, deleted })
+  res.json({ handle: req.params.handle, deleted: clearSession(req.params.handle) })
 })
 
-// Submit
 app.post("/api/submit", async (req, res) => {
   try {
     const { handle, contestId, index, code, languageId } = req.body
-    if (!handle) {
-      return res.status(400).json({ error: "handle requerido para submit" })
-    }
+    if (!handle) return res.status(400).json({ error: "handle required" })
     const result = await submitCF(contestId, index, code, languageId, handle)
-    // Submit exitoso incluso si no pudimos leer el ID
     res.json({ ...result, success: true })
   } catch (err) {
     console.error(err)
-    // Si la sesion expiro, informar al cliente para que re-autentique
-    const sessionExpired = err.message.includes("expirada") || err.message.includes("login primero")
-    res.status(sessionExpired ? 401 : 500).json({
-      error: err.message,
-      sessionExpired
-    })
+    const expired = err.message.includes("expired") || err.message.includes("log in")
+    res.status(expired ? 401 : 500).json({ error: err.message, sessionExpired: expired })
+  }
+})
+
+// Polling de veredicto para una submission
+app.get("/api/verdict/:submissionId", async (req, res) => {
+  try {
+    const verdict = await getSubmissionStatus(req.params.submissionId)
+    res.json(verdict)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 })
 
