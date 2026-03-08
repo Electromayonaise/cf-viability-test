@@ -1,65 +1,95 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-
 <meta charset="UTF-8">
-
-<title>OJ Integration Test</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CF Bridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 <link rel="stylesheet" href="style.css">
-
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-
 </head>
-
 <body>
 
-<div class="container">
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="logo">CF<span class="logo-accent">Bridge</span></span>
+  </div>
+  <div class="topbar-right">
+    <div id="userChip" class="user-chip hidden">
+      <span class="user-dot"></span>
+      <span id="userHandle"></span>
+      <button class="chip-logout" onclick="logout()" title="Log out">&#x2715;</button>
+    </div>
+    <button id="loginBtn" class="btn-login" onclick="startLogin()">
+      Connect Codeforces
+    </button>
+  </div>
+</header>
 
-<h1>OJ Integration Test</h1>
+<main class="layout">
 
-<div class="problem-bar">
+  <section class="panel panel-problem">
+    <div class="search-row">
+      <input id="problemInput" class="input-mono" placeholder="Problem ID — e.g. 1213D2 or 800A">
+      <button class="btn-primary" onclick="loadProblem()">Load</button>
+    </div>
+    <div id="problemContainer" class="problem-area">
+      <div class="empty-state">
+        <div class="empty-icon">&#9633;</div>
+        <p>Enter a problem ID to get started</p>
+      </div>
+    </div>
+  </section>
 
-<input
-id="problemInput"
-placeholder="Enter problem (e.g. 1213D2)"
->
+  <aside class="panel panel-submit">
 
-<button onclick="loadProblem()">
-Load Problem
-</button>
+    <div class="submit-block">
+      <label class="field-label">Language</label>
+      <select id="language" class="select-field"></select>
+    </div>
 
-</div>
+    <div class="submit-block grow">
+      <label class="field-label">Solution</label>
+      <textarea id="code" class="code-editor" placeholder="// paste your solution here"></textarea>
+    </div>
 
-<div id="problemContainer"></div>
+    <div id="submitArea">
+      <button id="connectBtn" class="btn-full btn-connect" onclick="startLogin()">
+        <span class="btn-icon">&#9651;</span> Connect Codeforces to Submit
+      </button>
+      <button id="submitBtn" class="btn-full btn-submit hidden" onclick="submitSolution()">
+        Submit Solution
+      </button>
+    </div>
 
-<div id="submitSection">
+    <div id="statusBanner" class="status-banner hidden"></div>
 
-<h2>Submit Solution</h2>
+  </aside>
 
-<select id="language">
+</main>
 
-<option value="54">GNU C++17</option>
-<option value="71">Python 3</option>
-
-</select>
-
-<textarea
-id="code"
-placeholder="Paste your solution here..."
-></textarea>
-
-<button onclick="submitSolution()">
-Submit
-</button>
-
-</div>
-
+<!-- Login modal -->
+<div id="loginModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Connecting to Codeforces</span>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-desc">A Chrome window will open. If Codeforces shows a verification, complete it — then log in normally. Your session will be saved automatically.</p>
+      <label class="field-label">Codeforces Handle</label>
+      <input id="cfHandle" class="input-field" placeholder="your_handle">
+      <label class="field-label" style="margin-top:12px">Password</label>
+      <input id="cfPassword" class="input-field" type="password" placeholder="••••••••">
+      <button id="modalLoginBtn" class="btn-full btn-submit" style="margin-top:20px" onclick="doLogin()">
+        Open Browser &amp; Login
+      </button>
+      <div id="modalStatus" class="modal-status hidden"></div>
+    </div>
+  </div>
 </div>
 
 <script src="app.js"></script>
-
 </body>
-
 </html>
