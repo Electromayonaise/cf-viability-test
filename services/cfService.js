@@ -295,58 +295,64 @@ export async function submitCF(contestId, index, code, languageId, handle) {
 
     console.log("[CF] Code length in textarea:", codeInTextarea.length || "(via override)")
 
-    // Esperar a que Turnstile complete la verificacion:
-    // el iframe de CF cambia a estado "success" cuando aparece el checkmark verde
-    try {
-      await page.waitForFunction(() => {
-        const iframe = document.querySelector("iframe[src*='challenges.cloudflare.com']")
-        if (!iframe) return true  // sin Turnstile, proceder
-        // El widget pasa a aria-label "Success" o el boton queda enabled
-        return iframe.getAttribute("aria-label")?.includes("success") ||
-               document.querySelector("#singlePageSubmitButton:not([disabled])") !== null
-      }, { timeout: 15000, polling: 300 })
-    } catch (_) {
-      // Si no detectamos el estado, esperar un tiempo fijo conservador
+    // Turnstile: wait for the submit button to be enabled (up to 3 min for manual challenges),
+    // then a short settlement pause so the token is fully committed before the click.
+    console.log("[CF] Waiting for Turnstile (up to 3 min)...")
+    await page.waitForSelector("#singlePageSubmitButton:not([disabled])", { timeout: 180000 })
+    await page.waitForTimeout(1500)  // token settlement pause
+
+    // Click + navigation with retry.
+    // If CF silently rejects the submit (Turnstile token still in-flight),
+    // no navigation occurs and the button re-enables. We detect that and retry.
+    let submitSuccess = false
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log(`[CF] Submit attempt ${attempt}/3...`)
+      const navigationPromise = page
+        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 })
+        .then(() => true)
+        .catch(() => false)
+      await page.click("#singlePageSubmitButton")
+      const navigated = await navigationPromise
+      if (navigated) {
+        submitSuccess = true
+        break
+      }
+      // No navigation: CF rejected the submit, wait for button re-enable and retry
+      console.log("[CF] No navigation after click, waiting for button re-enable...")
+      try {
+        await page.waitForSelector("#singlePageSubmitButton:not([disabled])", { timeout: 30000 })
+        await page.waitForTimeout(800)
+      } catch (_) {
+        throw new Error("Submit button did not re-enable after failed attempt")
+      }
     }
-
-    // Espera adicional para que el token de Turnstile se procese en el servidor
-    await page.waitForTimeout(2000)
-    await page.waitForSelector("#singlePageSubmitButton:not([disabled])", { timeout: 10000 })
-
-    console.log("[CF] Turnstile passed. Clicking #singlePageSubmitButton...")
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }),
-      page.click("#singlePageSubmitButton")
-    ])
+    if (!submitSuccess) throw new Error("Submit failed after 3 attempts")
 
     console.log("[CF] Post-submit URL:", page.url())
 
-    // Esperar un momento para que CF indexe el submission
-    await page.waitForTimeout(2000)
-
-    // Leer submission ID desde la página de status del usuario
-    await page.goto(`https://codeforces.com/problemset/status?handle=${handle}&my=on`, {
-      waitUntil: "domcontentloaded",
-      timeout: 20000
-    })
-
-    // Esperar a que aparezca al menos una fila de submission
+    // CF redirige a /submissions/<handle> tras el submit.
+    // Esperamos a que aparezca la fila con data-submission-id en la pagina
+    // de destino antes de cerrar el browser: esto confirma que CF ya registro
+    // el submission en su servidor.
     let submissionId = null
+
     try {
-      await page.waitForSelector("tr[data-submission-id]", { timeout: 10000 })
+      await page.waitForSelector("tr[data-submission-id]", { timeout: 15000 })
       submissionId = await page.evaluate(() => {
         const row = document.querySelector("tr[data-submission-id]")
         return row ? row.getAttribute("data-submission-id") : null
       })
-    } catch (_) {
-      // Si no aparece con my=on, intentar sin filtro buscando el handle
-      console.log("[CF] Retrying status without my=on filter...")
+    } catch (_) {}
+
+    // Si la pagina de destino no tenia la tabla, ir a /submissions/<handle>
+    if (!submissionId) {
+      console.log("[CF] No submission row on redirect page, navigating to submissions...")
       await page.goto(`https://codeforces.com/submissions/${handle}`, {
         waitUntil: "domcontentloaded",
         timeout: 20000
       })
       try {
-        await page.waitForSelector("tr[data-submission-id]", { timeout: 8000 })
+        await page.waitForSelector("tr[data-submission-id]", { timeout: 15000 })
         submissionId = await page.evaluate(() => {
           const row = document.querySelector("tr[data-submission-id]")
           return row ? row.getAttribute("data-submission-id") : null
@@ -355,18 +361,25 @@ export async function submitCF(contestId, index, code, languageId, handle) {
     }
 
     if (!submissionId) {
-      // El submit fue exitoso (HTTP 200) aunque no podamos leer el ID ahora
       console.warn("[CF] Submit succeeded but could not read submission ID from status page.")
       return { submissionId: null, warning: "Submission sent successfully but ID could not be retrieved. Check your Codeforces profile." }
     }
 
     console.log(`[CF] Submit OK. ID: ${submissionId}`)
 
+    // Cerrar el browser de forma ordenada ANTES de que finally mate el proceso.
+    // Si proc.kill() llega primero, Chrome termina a mitad de una request de red
+    // y el submit puede no quedar registrado en CF.
     await browser.close().catch(() => {})
     return { submissionId }
 
   } finally {
-    if (proc) { proc.kill(); console.log("[CF] Chrome (submit) closed.") }
+    // proc.kill() solo como safety net para errores antes del browser.close()
+    // del flujo normal. En el happy path, browser.close() ya cerro Chrome.
+    if (proc) {
+      proc.kill()
+      console.log("[CF] Chrome (submit) closed.")
+    }
     rm(profileDir, { recursive: true, force: true }).catch(() => {})
   }
 }
